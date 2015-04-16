@@ -326,7 +326,6 @@ class GroupManager(BaseManager, ChartMixin):
 
         return self.save_data(project, data)
 
-    @transaction.commit_on_success
     def save_data(self, project, data, raw=False):
         # TODO: this function is way too damn long and needs refactored
         # the inner imports also suck so let's try to move it away from
@@ -337,128 +336,129 @@ class GroupManager(BaseManager, ChartMixin):
         from sentry.plugins import plugins
         from sentry.models import Event, Project, EventMapping
 
-        project = Project.objects.get_from_cache(id=project)
+        with transaction.commit_on_success():
+            project = Project.objects.get_from_cache(id=project)
 
-        # First we pull out our top-level (non-data attr) kwargs
-        event_id = data.pop('event_id')
-        message = data.pop('message')
-        culprit = data.pop('culprit')
-        level = data.pop('level')
-        time_spent = data.pop('time_spent')
-        logger_name = data.pop('logger')
-        server_name = data.pop('server_name')
-        site = data.pop('site')
-        date = data.pop('timestamp')
-        checksum = data.pop('checksum')
-        platform = data.pop('platform')
+            # First we pull out our top-level (non-data attr) kwargs
+            event_id = data.pop('event_id')
+            message = data.pop('message')
+            culprit = data.pop('culprit')
+            level = data.pop('level')
+            time_spent = data.pop('time_spent')
+            logger_name = data.pop('logger')
+            server_name = data.pop('server_name')
+            site = data.pop('site')
+            date = data.pop('timestamp')
+            checksum = data.pop('checksum')
+            platform = data.pop('platform')
 
-        if 'sentry.interfaces.Exception' in data:
-            if 'values' not in data['sentry.interfaces.Exception']:
-                data['sentry.interfaces.Exception'] = {'values': [data['sentry.interfaces.Exception']]}
+            if 'sentry.interfaces.Exception' in data:
+                if 'values' not in data['sentry.interfaces.Exception']:
+                    data['sentry.interfaces.Exception'] = {'values': [data['sentry.interfaces.Exception']]}
 
-            # convert stacktrace + exception into expanded exception
-            if 'sentry.interfaces.Stacktrace' in data:
-                data['sentry.interfaces.Exception']['values'][0]['stacktrace'] = data.pop('sentry.interfaces.Stacktrace')
+                # convert stacktrace + exception into expanded exception
+                if 'sentry.interfaces.Stacktrace' in data:
+                    data['sentry.interfaces.Exception']['values'][0]['stacktrace'] = data.pop('sentry.interfaces.Stacktrace')
 
-        kwargs = {
-            'level': level,
-            'message': message,
-            'platform': platform,
-            'culprit': culprit or '',
-            'logger': logger_name,
-        }
+            kwargs = {
+                'level': level,
+                'message': message,
+                'platform': platform,
+                'culprit': culprit or '',
+                'logger': logger_name,
+            }
 
-        event = Event(
-            project=project,
-            event_id=event_id,
-            data=data,
-            server_name=server_name,
-            site=site,
-            time_spent=time_spent,
-            datetime=date,
-            **kwargs
-        )
-
-        # Calculate the checksum from the first highest scoring interface
-        if not checksum:
-            checksum = get_checksum_from_event(event)
-
-        event.checksum = checksum
-
-        group_kwargs = kwargs.copy()
-        group_kwargs.update({
-            'last_seen': date,
-            'first_seen': date,
-            'time_spent_total': time_spent or 0,
-            'time_spent_count': time_spent and 1 or 0,
-        })
-
-        tags = data['tags']
-        tags.append(('level', LOG_LEVELS[level]))
-        if logger:
-            tags.append(('logger', logger_name))
-        if server_name:
-            tags.append(('server_name', server_name))
-        if site:
-            tags.append(('site', site))
-
-        for plugin in plugins.for_project(project):
-            added_tags = safe_execute(plugin.get_tags, event)
-            if added_tags:
-                tags.extend(added_tags)
-
-        try:
-            group, is_new, is_sample = self._create_group(
-                event=event,
-                tags=data['tags'],
-                **group_kwargs
+            event = Event(
+                project=project,
+                event_id=event_id,
+                data=data,
+                server_name=server_name,
+                site=site,
+                time_spent=time_spent,
+                datetime=date,
+                **kwargs
             )
-        except Exception as exc:
-            # TODO: should we mail admins when there are failures?
+
+            # Calculate the checksum from the first highest scoring interface
+            if not checksum:
+                checksum = get_checksum_from_event(event)
+
+            event.checksum = checksum
+
+            group_kwargs = kwargs.copy()
+            group_kwargs.update({
+                'last_seen': date,
+                'first_seen': date,
+                'time_spent_total': time_spent or 0,
+                'time_spent_count': time_spent and 1 or 0,
+            })
+
+            tags = data['tags']
+            tags.append(('level', LOG_LEVELS[level]))
+            if logger:
+                tags.append(('logger', logger_name))
+            if server_name:
+                tags.append(('server_name', server_name))
+            if site:
+                tags.append(('site', site))
+
+            for plugin in plugins.for_project(project):
+                added_tags = safe_execute(plugin.get_tags, event)
+                if added_tags:
+                    tags.extend(added_tags)
+
             try:
-                logger.exception(u'Unable to process log entry: %s', exc)
-            except Exception, exc:
-                warnings.warn(u'Unable to process log entry: %s', exc)
-            return
+                group, is_new, is_sample = self._create_group(
+                    event=event,
+                    tags=data['tags'],
+                    **group_kwargs
+                )
+            except Exception as exc:
+                # TODO: should we mail admins when there are failures?
+                try:
+                    logger.exception(u'Unable to process log entry: %s', exc)
+                except Exception, exc:
+                    warnings.warn(u'Unable to process log entry: %s', exc)
+                return
 
-        using = group._state.db
+            using = group._state.db
 
-        event.group = group
+            event.group = group
 
-        # save the event unless its been sampled
-        if not is_sample:
+            # save the event unless its been sampled
+            if not is_sample:
+                sid = transaction.savepoint(using=using)
+                try:
+                    event.save()
+                except IntegrityError:
+                    transaction.savepoint_rollback(sid, using=using)
+                    return event
+                transaction.savepoint_commit(sid, using=using)
+
             sid = transaction.savepoint(using=using)
             try:
-                event.save()
+                EventMapping.objects.create(
+                    project=project, group=group, event_id=event_id)
             except IntegrityError:
                 transaction.savepoint_rollback(sid, using=using)
                 return event
             transaction.savepoint_commit(sid, using=using)
+            transaction.commit_unless_managed(using=using)
 
-        sid = transaction.savepoint(using=using)
-        try:
-            EventMapping.objects.create(
-                project=project, group=group, event_id=event_id)
-        except IntegrityError:
-            transaction.savepoint_rollback(sid, using=using)
-            return event
-        transaction.savepoint_commit(sid, using=using)
-        transaction.commit_unless_managed(using=using)
+            if not raw:
+                send_group_processors(
+                    group=group,
+                    event=event,
+                    is_new=is_new,
+                    is_sample=is_sample
+                )
 
-        if not raw:
-            send_group_processors(
-                group=group,
-                event=event,
-                is_new=is_new,
-                is_sample=is_sample
-            )
+            # TODO: move this to the queue
+            if is_new and not raw:
+                regression_signal.send_robust(sender=self.model, instance=group)
 
         if getattr(settings, 'SENTRY_INDEX_SEARCH', settings.SENTRY_USE_SEARCH):
             index_event.delay(event)
-
-        # TODO: move this to the queue
-        if is_new and not raw:
-            regression_signal.send_robust(sender=self.model, instance=group)
 
         return event
 
