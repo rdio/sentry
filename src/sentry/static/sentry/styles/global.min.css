@@ -8454,7 +8454,7 @@ section.body .page-header:first-child {
   font-size: 13px;
   border-bottom: 2px solid #dee6ed;
   -webkit-font-smoothing: antialiased;
-  padding: 6px 12px;
+  padding: 6px 10px;
 }
 .btn i {
   background-image: none;
