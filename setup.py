@@ -95,7 +95,7 @@ install_requires = [
 ]
 
 postgres_requires = [
-    'psycopg2>=2.5.0,<2.6.0',
+    'psycopg2>=2.5.0,<2.7',
 ]
 
 postgres_pypy_requires = [
