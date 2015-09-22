@@ -24,9 +24,12 @@
         </div>
         <div class="tab-pane" id="add">
             <p>{% trans "You may add a user by their username if they already have an account." %}</p>
-            {% with add_form as form %}
-                {% include "sentry/partial/_form.html" %}
-            {% endwith %}
+            <form action="" method="post" class="form-search">
+                {% csrf_token %}
+                {{ form|as_crispy_errors }}
+
+                {{ form.user }} <button type="submit" class="btn btn-primary" style="padding: 6px 10px; margin-left: 5px">{% trans "Add Member" %}</button>
+            </form>
         </div>
     </div>
 
