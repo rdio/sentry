@@ -1,3 +1,11 @@
+Rdio Changes (rdio0-rdio3)
+------------
+
+setup.py changes for version pinning (don't forward-port)
+sentry.manager.GroupManager changes to fix db commit order on distributed celery use (backported from 7.x)
+src/sentry/scripts/app.js, src/sentry/scripts/util, src/sentry/templates/sentry/teams/members/new.html enable searching all sentry users on the add team member pane (rdio custom)
+sentry.web.api.search_users() make user search fn search users from all teams (rdio custom)
+
 Version 6.4.0
 -------------
 
