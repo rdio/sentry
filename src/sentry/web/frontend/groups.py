@@ -184,13 +184,23 @@ def render_with_group_context(group, template, context, request=None,
         if event.id:
             base_qs = group.event_set.exclude(id=event.id)
             try:
-                next_event = base_qs.filter(datetime__gte=event.datetime).order_by('datetime')[0:1].get()
-            except Event.DoesNotExist:
+                next_event = sorted(
+                    base_qs.filter(
+                        datetime__gte=event.datetime
+                    ).order_by('datetime')[0:5],
+                    key=lambda x: (x.datetime, x.id)
+                )[0]
+            except IndexError:
                 next_event = None
 
             try:
-                prev_event = base_qs.filter(datetime__lte=event.datetime).order_by('-datetime')[0:1].get()
-            except Event.DoesNotExist:
+                prev_event = sorted(
+                    base_qs.filter(
+                        datetime__gte=event.datetime
+                    ).order_by('-datetime')[0:5],
+                    key=lambda x: (x.datetime, x.id)
+                )[0]
+            except IndexError:
                 prev_event = None
         else:
             next_event = None
