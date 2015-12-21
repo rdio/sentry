@@ -1,6 +1,5 @@
 {% extends "sentry/teams/members/index.html" %}
 
-{% load crispy_forms_tags %}
 {% load i18n %}
 
 {% block title %}{% trans "New Member" %} | {{ block.super }}{% endblock %}
@@ -26,12 +25,7 @@
         <div class="tab-pane" id="add">
             <p>{% trans "You may add a user by their username if they already have an account." %}</p>
             {% with add_form as form %}
-            <form action="" method="post" class="form-search">
-                {% csrf_token %}
-                {{ form|as_crispy_errors }}
-
-                {{ form.user|as_crispy_field }} <button type="submit" class="btn btn-primary" style="padding: 6px 10px; margin-left: 5px">{% trans "Add Member" %}</button>
-            </form>
+                {% include "sentry/partial/_form.html" %}
             {% endwith %}
         </div>
     </div>
